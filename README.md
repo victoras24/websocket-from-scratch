@@ -30,8 +30,7 @@ If the request does not contain the required headers, we simply respond with a n
 
 The next part is decoding the payload sent by the client. This was the hard part for me because I didn’t know anything about binary data, bitwise operators, or how to read the figure in the RFC (screenshot below): 
   
-[<img width="674" height="385" alt="image" src="https://github.com/user-attachments/assets/f5f1789c-11da-47d2-9ad0-1237e5e81d1b" />
-](https://www.google.com/url?sa=i&url=https%3A%2F%2Fvishalrana9915.medium.com%2Funderstanding-websockets-in-depth-6eb07ab298b3&psig=AOvVaw1ru5GHbMY30vba5zcKLWym&ust=1761239857199000&source=images&cd=vfe&opi=89978449&ved=0CBUQjRxqFwoTCLC1_fGnuJADFQAAAAAdAAAAABAE)
+<img width="1400" height="760" alt="image" src="https://github.com/user-attachments/assets/6231e6f5-9d4d-45eb-9d8c-f3d453f68925" />
 
 If it’s your first time working with binary data, I feel you. So let me explain.
 Each byte is 8 bits. The second row with the digits 0, 1, 2, 3 and so on represents the bit positions. For example, FIN (which I’ll explain shortly) uses 1 bit. RSV1, RSV2 and RSV3 each use 1 bit as well. Then the opcode uses 4 bits. Altogether, these make up the first byte of the frame.
@@ -83,3 +82,4 @@ What are the next steps?
 3. Error handling
 
 It may have taken me a week to set up a WebSocket from scratch, but now I have a better understanding of how WebSockets are created, how the connection is maintained, what the frames are, and how the frames are decoded. I encourage all developers, especially junior ones like me, to give it a try. Sometimes, when you dig into the low level details, everything feels reasonable and easy to understand. But when you try to look at it from a high level perspective, it can seem really complex.
+
