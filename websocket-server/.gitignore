@@ -1,0 +1,56 @@
+# -------------------------
+# .NET / C# build artifacts
+# -------------------------
+
+bin/
+obj/
+
+# NuGet
+*.nupkg
+*.snupkg
+*.nuspec
+*.psmdcp
+packages/
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Build logs
+*.log
+
+# User-specific files
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Rider IDE
+.idea/
+*.DotSettings.user
+*.sln.iml
+
+# Rider cache files
+/shelf/
+/workspace.xml
+/modules.xml
+/contentModel.xml
+/projectSettingsUpdater.xml
+/httpRequests/
+/dataSources/
+/dataSources.local.xml
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.old
+*.swp
+
+# Resharper
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings
