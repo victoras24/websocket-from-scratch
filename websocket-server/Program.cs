@@ -149,7 +149,10 @@ public class Start
             startingPayloadFrame = 4;
         } else if (payloadDataLength == 127)
         {
-            payloadDataLength = frameBuffer[2] << 8 | frameBuffer[9];
+            payloadDataLength = (int)BitConverter.ToUInt64([
+                frameBuffer[9], frameBuffer[8], frameBuffer[7], frameBuffer[6],
+                frameBuffer[5], frameBuffer[4], frameBuffer[3], frameBuffer[2]
+            ], 0);
             startingPayloadFrame = 10;
         }
         
