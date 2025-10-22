@@ -12,6 +12,7 @@ public class Start
         const int port = 8080;
         const string nextLine = "\r\n";
         byte[] bytes = new byte[1024];
+        List<byte> messageBuffer = new List<byte>();
         
         TcpListener tcpListener = new TcpListener(IPAddress.Any, port);
         
@@ -95,6 +96,8 @@ public class Start
                     byte[] frameBuffer = new byte[1024];
                     int bytesRead = stream.Read(frameBuffer, 0, frameBuffer.Length);
                     DecodeFrame(bytesRead, frameBuffer);
+                    messageBuffer.AddRange(frameBuffer.Take(bytesRead));
+                    DecodeFrame(messageBuffer);
                 }
                 
             }
@@ -108,12 +111,11 @@ public class Start
         }
     }
 
-    private static void DecodeFrame(int bytesLength, byte[] frameBuffer)
+    private static void DecodeFrame(List<byte> frameBuffer)
     {
-        for (int i = 0; i < bytesLength; i++)
+        foreach (var t in frameBuffer)
         {
-            
-            Console.WriteLine(frameBuffer[i]);
+            Console.WriteLine(t);
         }
         // we need to find the FIN. The FIN it shows if this is the last frame or there are also more frames coming. If it's 0 means more messages will follow.
         // if it's 1 means this is the last one. The 2nd, 3rd and 4th bit is reserved, rarely used. And the last 4 bits are use for the opcodes.
@@ -123,11 +125,11 @@ public class Start
         if (opcode == 1)
         {
             string dataType = "text";
-            Console.WriteLine($"The payload data type is {dataType}");
+            Console.WriteLine($"The payload data type is {dataType} {opcode}");
         }
         else
         {
-            Console.WriteLine("Check for other opcode types");
+            Console.WriteLine($"Check for other opcode types {opcode}");
             return;
         };
         
@@ -169,11 +171,26 @@ public class Start
 
         // Storing payload data
         byte[] payloadData = new byte[payloadDataLength];
-        
-        for (int i = 0; i < payloadDataLength; i++)
+
+        if (frameBuffer.Count < startingPayloadFrame + (isPayloadDataMasked ? 4 : 0) + payloadDataLength)
         {
-            payloadData[i] = frameBuffer[i + startingPayloadFrame + 4];
+            Console.WriteLine("Not enough data received yet. Waiting for more...");
+            return; // or buffer until more data arrives
         }
+        
+        try
+        {
+            for (int i = 0; i < payloadDataLength; i++)
+            {
+                payloadData[i] = frameBuffer[i + startingPayloadFrame + 4];
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+        
             
         // Unmasking the stored payload data using the masking keys
         byte[] unmaskedPayload = new byte[payloadDataLength];
