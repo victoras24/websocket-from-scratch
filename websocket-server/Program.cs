@@ -95,7 +95,6 @@ public class Start
                 {
                     byte[] frameBuffer = new byte[1024];
                     int bytesRead = stream.Read(frameBuffer, 0, frameBuffer.Length);
-                    DecodeFrame(bytesRead, frameBuffer);
                     messageBuffer.AddRange(frameBuffer.Take(bytesRead));
                     DecodeFrame(messageBuffer);
                 }
