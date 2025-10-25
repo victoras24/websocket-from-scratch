@@ -10,104 +10,49 @@ public class Start
     public static void Main()
     {
         const int port = 8080;
-        const string nextLine = "\r\n";
         byte[] bytes = new byte[1024];
         List<byte> messageBuffer = new List<byte>();
         
-        TcpListener tcpListener = new TcpListener(IPAddress.Any, port);
-        
-        tcpListener.Start();
-        Console.WriteLine("Listening on port {0}", IPAddress.Any + ":" + port);
-        while (true)
+        try
         {
-            var tcpClient = tcpListener.AcceptTcpClient();
-            var stream = tcpClient.GetStream();
-            var reader = stream.Read(bytes, 0, bytes.Length);
-            if (reader == 0)
-            {
-                Console.WriteLine("Empty request received, skipping...");
-                continue;
-            }
-            var stringByte = Encoding.UTF8.GetString(bytes, 0, reader);
-            var data = stringByte.Trim();
-            var httpRequest = new Dictionary<string, string>();
-            var lines = data.Split(["\r\n", "\n"], StringSplitOptions.None);
-            var firstLine = lines[0];
-            var specialLine = firstLine.Split(" ");
-            if (specialLine.Length >= 3)
-            {
-                httpRequest.Add("method", specialLine[0]);
-                httpRequest.Add("uri", specialLine[1]);
-                httpRequest.Add("httpVersion", specialLine[2]);
-            }
-            else
-            {
-                Console.WriteLine("Invalid request line");
-                continue;
-            }
-            for (int i = 1; i < lines.Length; i++)
-            {
-                if (string.IsNullOrWhiteSpace(lines[i])) continue; 
-
-                var headerParts = lines[i].Split(':', 2); 
-                if (headerParts.Length == 2)
-                {
-                    var key = headerParts[0].Trim();
-                    var value = headerParts[1].Trim();
-                    httpRequest.Add(key.ToLower(), value);
-                }
-            }
-
-            foreach (var kv in httpRequest)
-            {
-                Console.WriteLine(kv.Key + ": " + kv.Value);
-            }
-
-            var response = "";
+            var tcpLayer = new TcpLayer(IPAddress.Any, port);
+            var client = tcpLayer.CreateTcpConnection();
+            var connectionHandler = new ConnectionHandler(client, bytes);
+            var request = connectionHandler.HandleTcpClient();
+            var httpHandler = new HttpHandler(connectionHandler);
+            var requestHeader = httpHandler.HandleRequestHeader(request);
             
-            if (httpRequest.ContainsKey("upgrade") && 
-                httpRequest.ContainsKey("connection")&&
-                httpRequest["upgrade"].ToLower() == "websocket" && 
-                httpRequest["connection"].ToLower() == "upgrade")
+            if (requestHeader.Headers.ContainsKey("upgrade") && 
+                requestHeader.Headers.ContainsKey("connection")&&
+                requestHeader.Headers["upgrade"].ToLower() == "websocket" && 
+                requestHeader.Headers["connection"].ToLower() == "upgrade")
             {
-                // HTTP/1.1 101 Switching Protocols
-                // Upgrade: websocket
-                // Connection: Upgrade
-                // Sec-WebSocket-Accept: <computed-value>
-                // EMPTY LINE
                 
-                const string magicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-                using SHA1 sha1 = SHA1.Create();
-                byte[] hashBytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(httpRequest["sec-websocket-key"] + magicString));
-                string acceptKey = Convert.ToBase64String(hashBytes);
-
-                response = httpRequest["httpVersion"] + " " + "101" + " " + "Switching Protocols" + nextLine +
-                           "Upgrade: websocket" + nextLine +
-                           "Connection: Upgrade" + nextLine +
-                           "Sec-WebSocket-Accept: " + acceptKey + nextLine +
-                           nextLine;
+                httpHandler.CreateHttpResponseHeader(requestHeader);
                 
-                stream.Write(Encoding.UTF8.GetBytes(response), 0, response.Length);
-
-                Console.WriteLine("Websocket connected, reading frames now!");
-
-                while (tcpClient.Connected)
+                while (client.Connected)
                 {
                     byte[] frameBuffer = new byte[1024];
-                    int bytesRead = stream.Read(frameBuffer, 0, frameBuffer.Length);
+                    int bytesRead = connectionHandler.NetworkStream.Read(frameBuffer, 0, frameBuffer.Length);
                     messageBuffer.AddRange(frameBuffer.Take(bytesRead));
                     DecodeFrame(messageBuffer);
                 }
-                
             }
             else
             {
-                response = httpRequest["httpVersion"] + " " + "200" + " " + "OK" + nextLine + "Content-Type: " + "text/plain" + nextLine + "Hello from C# server!";
-                stream.Write(Encoding.UTF8.GetBytes(response), 0, response.Length);
-                stream.Close();
-                tcpClient.Close();
+                var response = requestHeader.HttpVersion + " " + "200" + " " + "OK" + httpHandler.NextLine + "Content-Type: " + "text/plain" + httpHandler.NextLine + "Hello from C# server!";
+                connectionHandler.NetworkStream.Write(Encoding.UTF8.GetBytes(response), 0, response.Length);
+                connectionHandler.NetworkStream.Close();
+                client.Close();
             }
+            
         }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
+            throw;
+        }
+        
     }
 
     private static void DecodeFrame(List<byte> frameBuffer)
