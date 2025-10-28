@@ -3,19 +3,20 @@ using System.Net.Sockets;
 
 namespace server;
 
-public class TcpLayer(IPAddress address, int port)
+public class TcpLayer(IPAddress address)
 {
+    private const int Port = 8080;
     private readonly byte[] _bytes = new byte[1024];
-    private readonly TcpListener _tcpListener = new TcpListener(address, port);
+    private readonly TcpListener _tcpListener = new TcpListener(address, Port);
     
-    public TcpClient CreateTcpConnection()
+    public async Task<TcpClient> CreateTcpConnection()
     {
         _tcpListener.Start();
 
         while (true)
         {
-            Console.WriteLine("Listening on port {0}", address + ":" + port);
-            var tcpClient = _tcpListener.AcceptTcpClient();
+            Console.WriteLine("Listening on port {0}", address + ":" + Port);
+            var tcpClient = await _tcpListener.AcceptTcpClientAsync();
             return tcpClient;
         }
     }

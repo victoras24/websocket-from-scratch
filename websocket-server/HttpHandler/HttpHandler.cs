@@ -8,7 +8,7 @@ public class HttpHandler(ConnectionHandler connectionHandler)
 {
     private ConnectionHandler _connectionHandler = connectionHandler;
     public string NextLine = "\r\n";
-    public HttpHandlerRequest HandleRequestHeader(string request)
+    public async Task<HttpHandlerRequest> HandleRequestHeader(string request)
     {
         HttpHandlerRequest httpRequest = new HttpHandlerRequest();
         var lines = request.Split(["\r\n", "\n"], StringSplitOptions.None);
@@ -37,7 +37,7 @@ public class HttpHandler(ConnectionHandler connectionHandler)
                 httpRequest.Headers.Add(key.ToLower(), value);
             }
         }
-        return httpRequest;
+        return await Task.FromResult(httpRequest);
     }
 
     public void CreateHttpResponseHeader(HttpHandlerRequest httpRequest)

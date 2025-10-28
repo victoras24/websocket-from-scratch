@@ -5,35 +5,30 @@ using System.Text;
 
 namespace server;
 
-public class Start
+public abstract class Start
 {
-    public static void Main()
+    public static async Task Main()
     {
-        const int port = 8080;
-        byte[] bytes = new byte[1024];
-        
         try
         {
-            var tcpLayer = new TcpLayer(IPAddress.Any, port);
-            var client = tcpLayer.CreateTcpConnection();
-            var connectionHandler = new ConnectionHandler(client, bytes);
+            var tcpLayer = new TcpLayer(IPAddress.Any);
+            var client = await tcpLayer.CreateTcpConnection();
+            var connectionHandler = new ConnectionHandler(client);
             var websocketLayer = new WebsocketLayer();
-            var request = connectionHandler.HandleTcpClient();
+            var request = await connectionHandler.HandleTcpClient();
             var httpHandler = new HttpHandler(connectionHandler);
-            var requestHeader = httpHandler.HandleRequestHeader(request);
-            
+            var requestHeader = await httpHandler.HandleRequestHeader(request);
+
             if (requestHeader.Headers.ContainsKey("upgrade") && 
                 requestHeader.Headers.ContainsKey("connection")&&
                 requestHeader.Headers["upgrade"].ToLower() == "websocket" && 
                 requestHeader.Headers["connection"].ToLower() == "upgrade")
             {
-                
                 httpHandler.CreateHttpResponseHeader(requestHeader);
                 
                 while (client.Connected)
                 {
-                    var data = websocketLayer.HandleWebsocketLayer(connectionHandler);
-                    Console.WriteLine(data);
+                    await websocketLayer.HandleWebsocketLayer(connectionHandler);
                 }
             }
             else
