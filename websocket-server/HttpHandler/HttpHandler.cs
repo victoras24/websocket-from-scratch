@@ -8,10 +8,26 @@ public class HttpHandler(ConnectionHandler connectionHandler)
 {
     private ConnectionHandler _connectionHandler = connectionHandler;
     public string NextLine = "\r\n";
-    public async Task<HttpHandlerRequest> HandleRequestHeader(string request)
-    {
+    public async Task<HttpHandlerRequest> ReadHttpRequest() {
+        List<byte> headerBytes = new();
+        byte[] oneByte = new byte[1];
+        
+        while (true)
+        {
+            await _connectionHandler.NetworkStream.ReadAsync(oneByte, 0, 1);
+            headerBytes.Add(oneByte[0]);
+            if (headerBytes.Count >= 4 && 
+                headerBytes[^4] == '\r' && 
+                headerBytes[^3] == '\n' && 
+                headerBytes[^2] == '\r' && 
+                headerBytes[^1] == '\n')
+                break;
+        }
+        
+        string fullRequest = Encoding.UTF8.GetString(headerBytes.ToArray());
+        
         HttpHandlerRequest httpRequest = new HttpHandlerRequest();
-        var lines = request.Split(["\r\n", "\n"], StringSplitOptions.None);
+        var lines = fullRequest.Split(["\r\n", "\n"], StringSplitOptions.None);
         var firstLine = lines[0];
         var specialLine = firstLine.Split(" ");
             if (specialLine.Length >= 3)
