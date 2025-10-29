@@ -15,11 +15,12 @@ public class ConnectionHandler(TcpClient tcpClient)
         while (true)
         {
             var bytesRead = await NetworkStream.ReadAsync(_readBuffer, 0, _readBuffer.Length);
+            
             if (bytesRead == 0) break;
 
             _frameParserBuffer.AddRange(_readBuffer.Take(bytesRead));
 
-            while (DecodeFrame()) { } 
+            DecodeFrame();
         }
     }
     
