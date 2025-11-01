@@ -65,12 +65,12 @@ public class ConnectionHandler(TcpClient tcpClient)
             UnmaskInPlace(payload, key);
         }
         
-        // if (opcode >= 0x8)
-        // {
-        //     HandleControlFrame(opcode, payload);
-        //     _frameParserBuffer.RemoveRange(0, totalSize);
-        //     return true;
-        // }
+        if (opcode >= 0x8)
+        {
+            HandleControlFrame(opcode, payload);
+            _frameParserBuffer.RemoveRange(0, totalSize);
+            return true;
+        }
 
         if (_currentOpcode == null)
         {
@@ -96,7 +96,7 @@ public class ConnectionHandler(TcpClient tcpClient)
             if (_currentOpcode == 0x1)
             {
                 string text = Encoding.UTF8.GetString(_messagePayload.ToArray());
-                Console.WriteLine($"[TEXT]: {text}");
+                Console.WriteLine(text);
             }
             else if (_currentOpcode == 0x2)
             {
@@ -116,20 +116,32 @@ public class ConnectionHandler(TcpClient tcpClient)
             payload[i] ^= key[i % 4];
     }
     
-    // private void HandleControlFrame(int opcode, byte[] payload)
-    // {
-    //     switch (opcode)
-    //     {
-    //         case 0x8: // Close
-    //             Console.WriteLine("Received Close frame");
-    //             // Send close back, then close stream
-    //             break;
-    //         case 0x9: // Ping
-    //             Console.WriteLine("Received Ping");
-    //             break;
-    //         case 0xA: // Pong
-    //             Console.WriteLine("Received Pong");
-    //             break;
-    //     }
-    // }
+    private void HandleControlFrame(int opcode, byte[] payload)
+    {
+        switch (opcode)
+        {
+            case 0x8: // Close
+                Console.WriteLine("Received Close frame");
+
+                if (payload.Length == 2)
+                {
+                    Console.WriteLine(BitConverter.ToUInt16(payload.Reverse().ToArray(), 0));
+                } else if (payload.Length > 2)
+                {
+                    Console.WriteLine(BitConverter.ToUInt16(payload.Take(2).Reverse().ToArray(), 0));
+                    Console.WriteLine(Encoding.UTF8.GetString(payload.Skip(2).Take(payload.Length - 2).ToArray()));
+                }
+                NetworkStream.Close();
+                // Send close back, then close stream
+                break;
+            case 0x9: // Ping
+                Console.WriteLine("Received Ping");
+                break;
+            case 0xA: // Pong
+                Console.WriteLine("Received Pong");
+                break;
+        }
+    }
+
+   
 }
