@@ -10,21 +10,29 @@ public class ConnectionHandler(TcpClient tcpClient)
     private int? _currentOpcode;
     private readonly List<byte> _messagePayload = new();
     public readonly NetworkStream NetworkStream = tcpClient.GetStream();
+    private readonly CancellationTokenSource _cancellationToken = new();
     public async Task RunWebsocketLoop()
     {
-        while (true)
+        try
         {
-            var bytesRead = await NetworkStream.ReadAsync(_readBuffer, 0, _readBuffer.Length);
-            
-            if (bytesRead == 0) break;
+            while (!_cancellationToken.IsCancellationRequested)
+            {
+                var bytesRead = await NetworkStream.ReadAsync(_readBuffer);
+                
+                if (bytesRead == 0) break;
 
-            _frameParserBuffer.AddRange(_readBuffer.Take(bytesRead));
+                _frameParserBuffer.AddRange(_readBuffer.Take(bytesRead));
 
-            DecodeFrame();
+                await DecodeFrame();
+            }
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine(e);
         }
     }
     
-    private bool DecodeFrame()
+    private async Task<bool> DecodeFrame()
     {
         bool fin = (_frameParserBuffer[0] & 0b10000000) != 0;
         int opcode = _frameParserBuffer[0] & 0b00001111;
@@ -67,7 +75,7 @@ public class ConnectionHandler(TcpClient tcpClient)
         
         if (opcode >= 0x8)
         {
-            HandleControlFrame(opcode, payload);
+           await HandleControlFrame(opcode, payload);
             _frameParserBuffer.RemoveRange(0, totalSize);
             return true;
         }
@@ -116,22 +124,33 @@ public class ConnectionHandler(TcpClient tcpClient)
             payload[i] ^= key[i % 4];
     }
     
-    private void HandleControlFrame(int opcode, byte[] payload)
+    private async Task HandleControlFrame(int opcode, byte[] payload)
     {
         switch (opcode)
         {
             case 0x8: // Close
                 Console.WriteLine("Received Close frame");
-
-                if (payload.Length == 2)
+                switch (payload.Length)
                 {
-                    Console.WriteLine(BitConverter.ToUInt16(payload.Reverse().ToArray(), 0));
-                } else if (payload.Length > 2)
-                {
-                    Console.WriteLine(BitConverter.ToUInt16(payload.Take(2).Reverse().ToArray(), 0));
-                    Console.WriteLine(Encoding.UTF8.GetString(payload.Skip(2).Take(payload.Length - 2).ToArray()));
+                    case 2:
+                        Console.WriteLine(BitConverter.ToUInt16(payload.Reverse().ToArray(), 0));
+                        await _cancellationToken.CancelAsync();
+                        await NetworkStream.WriteAsync(payload);
+                        NetworkStream.Close();
+                        break;
+                    case > 2:
+                        Console.WriteLine(BitConverter.ToUInt16(payload.Take(2).Reverse().ToArray(), 0));
+                        Console.WriteLine(Encoding.UTF8.GetString(payload.Skip(2).Take(payload.Length - 2).ToArray()));
+                        await _cancellationToken.CancelAsync();
+                        await NetworkStream.WriteAsync(payload);
+                        NetworkStream.Close();
+                        break;
+                    default:
+                        Console.WriteLine("oops");
+                        await _cancellationToken.CancelAsync();
+                        NetworkStream.Close();
+                        break;
                 }
-                NetworkStream.Close();
                 // Send close back, then close stream
                 break;
             case 0x9: // Ping
