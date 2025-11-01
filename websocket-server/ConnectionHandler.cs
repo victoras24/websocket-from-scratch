@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text;
+using Timer = System.Timers.Timer;
 
 namespace server;
 
@@ -11,8 +12,11 @@ public class ConnectionHandler(TcpClient tcpClient)
     private readonly List<byte> _messagePayload = new();
     public readonly NetworkStream NetworkStream = tcpClient.GetStream();
     private readonly CancellationTokenSource _cancellationToken = new();
+    private Timer _timer;
+    
     public async Task RunWebsocketLoop()
     {
+        SetTimerToPing();
         try
         {
             while (!_cancellationToken.IsCancellationRequested)
@@ -128,39 +132,64 @@ public class ConnectionHandler(TcpClient tcpClient)
     {
         switch (opcode)
         {
-            case 0x8: // Close
+            case 0x8: 
                 Console.WriteLine("Received Close frame");
                 switch (payload.Length)
                 {
                     case 2:
                         Console.WriteLine(BitConverter.ToUInt16(payload.Reverse().ToArray(), 0));
-                        await _cancellationToken.CancelAsync();
+                        Dispose();
                         await NetworkStream.WriteAsync(payload);
                         NetworkStream.Close();
                         break;
                     case > 2:
                         Console.WriteLine(BitConverter.ToUInt16(payload.Take(2).Reverse().ToArray(), 0));
                         Console.WriteLine(Encoding.UTF8.GetString(payload.Skip(2).Take(payload.Length - 2).ToArray()));
-                        await _cancellationToken.CancelAsync();
+                        Dispose();
                         await NetworkStream.WriteAsync(payload);
                         NetworkStream.Close();
                         break;
                     default:
                         Console.WriteLine("oops");
-                        await _cancellationToken.CancelAsync();
+                        Dispose();
                         NetworkStream.Close();
                         break;
                 }
-                // Send close back, then close stream
                 break;
-            case 0x9: // Ping
+            case 0x9:
                 Console.WriteLine("Received Ping");
                 break;
-            case 0xA: // Pong
+            case 0xA: 
                 Console.WriteLine("Received Pong");
+                _timer.Stop();
+                _timer.Dispose();
                 break;
         }
     }
 
-   
+    private async Task SendPingAsync()
+    {
+        var frame = new List<byte>();
+        var payload = new byte[] { 0xFF, 0xFE  };
+        
+        frame.Add(0b10001001);
+        frame.Add((byte)payload.Length);
+        frame.AddRange(payload);
+        await NetworkStream.WriteAsync(frame.ToArray());
+    }
+
+    private void SetTimerToPing()
+    {
+        _timer = new Timer(20000);
+        _timer.Elapsed += async (sender, e) => await SendPingAsync();
+        _timer.AutoReset = true;
+        _timer.Enabled = true;
+    }
+
+    private void Dispose()
+    {
+        _timer?.Stop();
+        _timer?.Dispose();
+        _cancellationToken?.Cancel();
+    }
 }
