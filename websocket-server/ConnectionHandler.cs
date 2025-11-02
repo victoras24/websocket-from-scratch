@@ -14,11 +14,21 @@ public class ConnectionHandler(TcpClient tcpClient)
     private readonly CancellationTokenSource _cancellationToken = new();
     private Timer _timer;
     
+    private List<Player> _mockData = new()
+    {
+        new Player { Label = "Player 1", Score = "75", Color = "red" },
+        new Player { Label = "Player 2", Score = "50", Color = "orange" }
+    };
+
+    
     public async Task RunWebsocketLoop()
     {
         try
         {
             SetTimerToPing();
+           
+            string jsonMessage = System.Text.Json.JsonSerializer.Serialize(_mockData);
+            await SendTextAsync(jsonMessage);
             while (!_cancellationToken.IsCancellationRequested)
             {
                 var bytesRead = await NetworkStream.ReadAsync(_readBuffer);
@@ -108,6 +118,19 @@ public class ConnectionHandler(TcpClient tcpClient)
             if (_currentOpcode == 0x1)
             {
                 string text = Encoding.UTF8.GetString(_messagePayload.ToArray());
+                
+                var updated = System.Text.Json.JsonSerializer.Deserialize<Player>(text);
+
+                var player = _mockData.FirstOrDefault(p => p.Label == updated?.Label);
+                if (player != null)
+                {
+                    if (updated != null) player.Score = updated.Score;
+                    Console.WriteLine($"{player.Label} updated to {player.Score}");
+                }
+
+                string jsonMessage = System.Text.Json.JsonSerializer.Serialize(_mockData);
+                await SendTextAsync(jsonMessage);
+                
                 Console.WriteLine(text);
             }
             else if (_currentOpcode == 0x2)
@@ -174,8 +197,9 @@ public class ConnectionHandler(TcpClient tcpClient)
         frame.Add((byte)payload.Length);
         frame.AddRange(payload);
         await NetworkStream.WriteAsync(frame.ToArray());
-        await SendTextAsync("hey");
     }
+    
+    
     
     private async Task SendTextAsync(string message)
     {
