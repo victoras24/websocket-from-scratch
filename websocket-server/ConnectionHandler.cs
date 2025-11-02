@@ -174,7 +174,21 @@ public class ConnectionHandler(TcpClient tcpClient)
         frame.Add((byte)payload.Length);
         frame.AddRange(payload);
         await NetworkStream.WriteAsync(frame.ToArray());
+        await SendTextAsync("hey");
     }
+    
+    private async Task SendTextAsync(string message)
+    {
+        var payload = Encoding.UTF8.GetBytes(message);
+        var frame = new List<byte>();
+        
+        frame.Add(0b10000001);
+        frame.Add((byte)payload.Length);
+        frame.AddRange(payload);
+
+        await NetworkStream.WriteAsync(frame.ToArray());
+    }
+
 
     private void SetTimerToPing()
     {
