@@ -16,9 +16,9 @@ public class ConnectionHandler(TcpClient tcpClient)
     
     public async Task RunWebsocketLoop()
     {
-        SetTimerToPing();
         try
         {
+            SetTimerToPing();
             while (!_cancellationToken.IsCancellationRequested)
             {
                 var bytesRead = await NetworkStream.ReadAsync(_readBuffer);
@@ -161,8 +161,6 @@ public class ConnectionHandler(TcpClient tcpClient)
                 break;
             case 0xA: 
                 Console.WriteLine("Received Pong");
-                _timer.Stop();
-                _timer.Dispose();
                 break;
         }
     }
