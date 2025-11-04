@@ -13,8 +13,10 @@ public class ConnectionHandler(TcpClient tcpClient)
     public readonly NetworkStream NetworkStream = tcpClient.GetStream();
     private readonly CancellationTokenSource _cancellationToken = new();
     private Timer _timer;
-    
-    private List<Player> _mockData = new()
+    private readonly List<ConnectionHandler> _connections = new();
+    private static readonly object ConnectionsLock = new();
+
+    private static List<Player> _mockData = new()
     {
         new Player { Label = "Player 1", Score = "75", Color = "red" },
         new Player { Label = "Player 2", Score = "50", Color = "orange" }
@@ -26,7 +28,9 @@ public class ConnectionHandler(TcpClient tcpClient)
         try
         {
             SetTimerToPing();
-           
+
+            lock (ConnectionsLock)
+                _connections.Add(this);
             string jsonMessage = System.Text.Json.JsonSerializer.Serialize(_mockData);
             await SendTextAsync(jsonMessage);
             while (!_cancellationToken.IsCancellationRequested)
