@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Text;
 using Timer = System.Timers.Timer;
@@ -13,26 +14,23 @@ public class ConnectionHandler(TcpClient tcpClient)
     public readonly NetworkStream NetworkStream = tcpClient.GetStream();
     private readonly CancellationTokenSource _cancellationToken = new();
     private Timer _timer;
-    private readonly List<ConnectionHandler> _connections = new();
-    private static readonly object ConnectionsLock = new();
+    private static readonly ConcurrentBag<ConnectionHandler> _connections = new();
 
     private static List<Player> _mockData = new()
     {
         new Player { Label = "Player 1", Score = "75", Color = "red" },
         new Player { Label = "Player 2", Score = "50", Color = "orange" }
     };
-
     
     public async Task RunWebsocketLoop()
     {
         try
         {
             SetTimerToPing();
-
-            lock (ConnectionsLock)
-                _connections.Add(this);
+            
+            _connections.Add(this);
             string jsonMessage = System.Text.Json.JsonSerializer.Serialize(_mockData);
-            await SendTextAsync(jsonMessage);
+            await BroadcastAsync(jsonMessage);
             while (!_cancellationToken.IsCancellationRequested)
             {
                 var bytesRead = await NetworkStream.ReadAsync(_readBuffer);
@@ -133,7 +131,7 @@ public class ConnectionHandler(TcpClient tcpClient)
                 }
 
                 string jsonMessage = System.Text.Json.JsonSerializer.Serialize(_mockData);
-                await SendTextAsync(jsonMessage);
+                await BroadcastAsync(jsonMessage);
                 
                 Console.WriteLine(text);
             }
@@ -200,22 +198,28 @@ public class ConnectionHandler(TcpClient tcpClient)
         frame.Add(0b10001001);
         frame.Add((byte)payload.Length);
         frame.AddRange(payload);
+        
         await NetworkStream.WriteAsync(frame.ToArray());
     }
     
     
     
-    private async Task SendTextAsync(string message)
+    private  async Task BroadcastAsync(string message)
     {
         var payload = Encoding.UTF8.GetBytes(message);
         var frame = new List<byte>();
-        
-        frame.Add(0b10000001);
+        frame.Add(0b10000001); 
         frame.Add((byte)payload.Length);
         frame.AddRange(payload);
+        var frameBytes = frame.ToArray();
+        
+        foreach (var connection in _connections)
+        {
+            connection.NetworkStream.Write(frame.ToArray());
+        }
 
-        await NetworkStream.WriteAsync(frame.ToArray());
     }
+
 
 
     private void SetTimerToPing()
@@ -231,5 +235,14 @@ public class ConnectionHandler(TcpClient tcpClient)
         _timer?.Stop();
         _timer?.Dispose();
         _cancellationToken?.Cancel();
+
+        if (_connections.TryTake(out var connection))
+        {
+            Console.WriteLine("Removed connection");
+        }
+        else
+        {
+            Console.WriteLine("No connection to remove");
+        };
     }
 }
