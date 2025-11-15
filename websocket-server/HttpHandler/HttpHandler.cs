@@ -8,69 +8,91 @@ public class HttpHandler(ConnectionHandler connectionHandler)
 {
     private ConnectionHandler _connectionHandler = connectionHandler;
     public string NextLine = "\r\n";
-    public async Task<HttpHandlerRequest> ReadHttpRequest() {
-        List<byte> headerBytes = new();
-        byte[] oneByte = new byte[1];
-        
-        while (true)
+    
+    public async Task<HttpHandlerRequest?> ReadHttpRequest() 
+    {
+        try
         {
-            await _connectionHandler.NetworkStream.ReadAsync(oneByte, 0, 1);
-            headerBytes.Add(oneByte[0]);
-            if (headerBytes.Count >= 4 && 
-                headerBytes[^4] == '\r' && 
-                headerBytes[^3] == '\n' && 
-                headerBytes[^2] == '\r' && 
-                headerBytes[^1] == '\n')
-                break;
-        }
-        
-        string fullRequest = Encoding.UTF8.GetString(headerBytes.ToArray());
-        
-        HttpHandlerRequest httpRequest = new HttpHandlerRequest();
-        var lines = fullRequest.Split(["\r\n", "\n"], StringSplitOptions.None);
-        var firstLine = lines[0];
-        var specialLine = firstLine.Split(" ");
+            List<byte> headerBytes = new();
+            byte[] oneByte = new byte[1];
+            
+            while (true)
+            {
+                int bytesRead = await _connectionHandler.NetworkStream.ReadAsync(oneByte, 0, 1);
+                
+                if (bytesRead == 0)
+                {
+                    // Connection closed
+                    return null;
+                }
+                
+                headerBytes.Add(oneByte[0]);
+                
+                if (headerBytes.Count >= 4 && 
+                    headerBytes[^4] == '\r' && 
+                    headerBytes[^3] == '\n' && 
+                    headerBytes[^2] == '\r' && 
+                    headerBytes[^1] == '\n')
+                    break;
+            }
+            
+            string fullRequest = Encoding.UTF8.GetString(headerBytes.ToArray());
+            
+            HttpHandlerRequest httpRequest = new HttpHandlerRequest();
+            var lines = fullRequest.Split(["\r\n", "\n"], StringSplitOptions.None);
+            var firstLine = lines[0];
+            var specialLine = firstLine.Split(" ");
+            
             if (specialLine.Length >= 3)
             { 
                 httpRequest.Method = specialLine[0];
-                httpRequest.Uri =  specialLine[1];
-                httpRequest.HttpVersion =  specialLine[2];
+                httpRequest.Uri = specialLine[1];
+                httpRequest.HttpVersion = specialLine[2];
             }
             else
             {
                 Console.WriteLine("Invalid request line");
+                return null;
+            }
+                
+            for (int i = 1; i < lines.Length; i++)
+            {
+                if (string.IsNullOrWhiteSpace(lines[i])) continue; 
+
+                var headerParts = lines[i].Split(':', 2); 
+                if (headerParts.Length == 2)
+                {
+                    var key = headerParts[0].Trim();
+                    var value = headerParts[1].Trim();
+                    httpRequest.Headers.Add(key.ToLower(), value);
+                }
             }
             
-        for (int i = 1; i < lines.Length; i++)
-        {
-            if (string.IsNullOrWhiteSpace(lines[i])) continue; 
-
-            var headerParts = lines[i].Split(':', 2); 
-            if (headerParts.Length == 2)
-            {
-                var key = headerParts[0].Trim();
-                var value = headerParts[1].Trim();
-                httpRequest.Headers.Add(key.ToLower(), value);
-            }
+            return httpRequest;
         }
-        return await Task.FromResult(httpRequest);
+        catch (IOException ex) when (ex.InnerException is SocketException)
+        {
+            Console.WriteLine("Connection reset while reading HTTP request");
+            return null;
+        }
     }
 
-    public void CreateHttpResponseHeader(HttpHandlerRequest httpRequest)
+    public async Task CreateHttpResponseHeader(HttpHandlerRequest httpRequest)
     {
         const string magicString = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
         using SHA1 sha1 = SHA1.Create();
         byte[] hashBytes = sha1.ComputeHash(Encoding.UTF8.GetBytes(httpRequest.Headers["sec-websocket-key"] + magicString));
         string acceptKey = Convert.ToBase64String(hashBytes);
 
-        var response = httpRequest.HttpVersion + " " + "101" + " " + "Switching Protocols" + NextLine +
-                   "Upgrade: websocket" + NextLine +
-                   "Connection: Upgrade" + NextLine +
-                   "Sec-WebSocket-Accept: " + acceptKey + NextLine +
-                   NextLine;
+        var response = httpRequest.HttpVersion + " 101 Switching Protocols" + NextLine +
+                       "Upgrade: websocket" + NextLine +
+                       "Connection: Upgrade" + NextLine +
+                       "Sec-WebSocket-Accept: " + acceptKey + NextLine +
+                       NextLine;
 
-        _connectionHandler.NetworkStream.Write(Encoding.UTF8.GetBytes(response), 0, response.Length);
+        await _connectionHandler.NetworkStream.WriteAsync(Encoding.UTF8.GetBytes(response));
 
-        Console.WriteLine("Websocket connected, reading frames now!");
+        Console.WriteLine("WebSocket handshake complete!");
     }
 }
+

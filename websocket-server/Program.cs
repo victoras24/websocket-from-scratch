@@ -1,7 +1,4 @@
 ﻿using System.Net;
-using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
 
 namespace server;
 
@@ -11,15 +8,12 @@ public abstract class Start
     {
         try
         {
-                var tcpLayer = new TcpLayer(IPAddress.Any);
-                await tcpLayer.CreateTcpConnection();
+            var tcpLayer = new TcpLayer(IPAddress.Any);
+            await tcpLayer.CreateTcpConnection();
         }
-
         catch (Exception e)
         {
-            Console.WriteLine(e);
-            throw;
+            Console.WriteLine($"Fatal error: {e}");
         }
-        
     }
 }

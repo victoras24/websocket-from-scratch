@@ -16,12 +16,14 @@ public class ConnectionHandler(TcpClient tcpClient)
     private readonly CancellationTokenSource _cancellationToken = new();
     private Timer _timer;
     private static readonly ConcurrentDictionary<Guid, ConnectionHandler> _connections = new();
-    private readonly Guid _id = Guid.NewGuid();
+    private readonly Guid id = Guid.NewGuid();
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
 
     private static List<Player> _mockData = new()
     {
-        new Player { Label = "Item 1", Score = "0", Color = "red" },
-        new Player { Label = "Item 2", Score = "0", Color = "orange" }
+        new Player { Label = "Item 1", Score = 0, Color = "red" },
+        new Player { Label = "Item 2", Score = 0, Color = "orange" }
     };
     
     public async Task RunWebsocketLoop()
@@ -29,17 +31,28 @@ public class ConnectionHandler(TcpClient tcpClient)
         try
         {
             SetTimerToPing();
-            
-            _connections.TryAdd(_id, this);
-            string jsonMessage = JsonSerializer.Serialize(_mockData);
-            await BroadcastAsync(jsonMessage);
-            var summary = _connections.Values.Select(c => new { Id = c._id }).ToList();
-            await BroadcastAsync(JsonSerializer.Serialize(summary));
+        
+            var dataMessage = new
+            {
+                type = "players",
+                data = _mockData
+            };
+            string jsonMessage = JsonSerializer.Serialize(dataMessage);
+            await SendFrameAsync(CreateTextFrame(jsonMessage)); 
+    
+            _connections.TryAdd(id, this);
+    
+            var connectionsMessage = new
+            {
+                type = "connections",
+                data = _connections.Values.Select(c => new { c.id })
+            };
+            await BroadcastAsync(JsonSerializer.Serialize(connectionsMessage));
 
             while (!_cancellationToken.IsCancellationRequested)
             {
                 var bytesRead = await NetworkStream.ReadAsync(_readBuffer);
-                
+        
                 if (bytesRead == 0) break;
 
                 _frameParserBuffer.AddRange(_readBuffer.Take(bytesRead));
@@ -47,20 +60,75 @@ public class ConnectionHandler(TcpClient tcpClient)
                 await DecodeFrame();
             }
         }
+        catch (IOException ex) when (ex.InnerException is SocketException se && se.SocketErrorCode == SocketError.ConnectionReset)
+        {
+            Console.WriteLine($"Connection {id} reset by peer");
+        }
         catch (Exception e)
         {
-            Console.WriteLine(e);
+            Console.WriteLine($"Connection {id} error: {e.Message}");
         }
+        finally
+        {
+            Dispose();
+            try { NetworkStream.Close(); } catch { }
+            Console.WriteLine($"Connection {id} closed");
+        }
+    }
+
+    private byte[] CreateTextFrame(string message)
+    {
+        var payload = Encoding.UTF8.GetBytes(message);
+        var frame = new List<byte> { 0b10000001 }; 
+    
+        if (payload.Length <= 125)
+        {
+            frame.Add((byte)payload.Length);
+        }
+        else if (payload.Length <= 65535)
+        {
+            frame.Add(126);
+            frame.Add((byte)(payload.Length >> 8));
+            frame.Add((byte)(payload.Length & 0xFF));
+        }
+        else
+        {
+            frame.Add(127);
+            for (int i = 7; i >= 0; i--)
+            {
+                frame.Add((byte)((payload.Length >> (i * 8)) & 0xFF));
+            }
+        }
+    
+        frame.AddRange(payload);
+        return frame.ToArray();
     }
     
     private async Task<bool> DecodeFrame()
     {
+        
+        if (_frameParserBuffer.Count < 2)
+            return false;
+
         bool fin = (_frameParserBuffer[0] & 0b10000000) != 0;
         int opcode = _frameParserBuffer[0] & 0b00001111;
         bool masked = (_frameParserBuffer[1] & 0b10000000) != 0;
         int len = _frameParserBuffer[1] & 0b01111111;
 
         int headerSize = 2;
+        if (len == 126)
+        {
+            if (_frameParserBuffer.Count < 4)
+                return false;
+            len = (_frameParserBuffer[2] << 8) | _frameParserBuffer[3];
+            headerSize = 4;
+        }
+        else if (len == 127)
+        {
+            if (_frameParserBuffer.Count < 10)
+                return false;
+        }
+        
         if (len == 126) { len = (_frameParserBuffer[2] << 8) | _frameParserBuffer[3]; headerSize = 4; }
         else if (len == 127)
         {
@@ -96,7 +164,7 @@ public class ConnectionHandler(TcpClient tcpClient)
         
         if (opcode >= 0x8)
         {
-           await HandleControlFrame(opcode, payload);
+            HandleControlFrame(opcode, payload);
             _frameParserBuffer.RemoveRange(0, totalSize);
             return true;
         }
@@ -126,7 +194,7 @@ public class ConnectionHandler(TcpClient tcpClient)
             {
                 string text = Encoding.UTF8.GetString(_messagePayload.ToArray());
                 
-                var updated = System.Text.Json.JsonSerializer.Deserialize<Player>(text);
+                var updated = JsonSerializer.Deserialize<Player>(text);
 
                 var player = _mockData.FirstOrDefault(p => p.Label == updated?.Label);
                 if (player != null)
@@ -135,8 +203,15 @@ public class ConnectionHandler(TcpClient tcpClient)
                     Console.WriteLine($"{player.Label} updated to {player.Score}");
                 }
 
-                string jsonMessage = System.Text.Json.JsonSerializer.Serialize(_mockData);
+                string jsonMessage = JsonSerializer.Serialize(_mockData);
                 await BroadcastAsync(jsonMessage);
+                
+                var connectionsMessage = new
+                {
+                    type = "connections",
+                    data = _connections.Values.Select(c => new { c.id })
+                };
+                await BroadcastAsync(JsonSerializer.Serialize(connectionsMessage));
                 
                 Console.WriteLine(text);
             }
@@ -158,77 +233,79 @@ public class ConnectionHandler(TcpClient tcpClient)
             payload[i] ^= key[i % 4];
     }
     
-    private async Task HandleControlFrame(int opcode, byte[] payload)
+    private void HandleControlFrame(int opcode, byte[] payload)
     {
         switch (opcode)
         {
             case 0x8: 
                 Console.WriteLine("Received Close frame");
-                switch (payload.Length)
+                Dispose(); 
+            
+                try
                 {
-                    case 2:
-                        Console.WriteLine(BitConverter.ToUInt16(payload.Reverse().ToArray(), 0));
-                        Dispose();
-                        await NetworkStream.WriteAsync(payload);
-                        NetworkStream.Close();
-                        break;
-                    case > 2:
-                        Console.WriteLine(BitConverter.ToUInt16(payload.Take(2).Reverse().ToArray(), 0));
-                        Console.WriteLine(Encoding.UTF8.GetString(payload.Skip(2).Take(payload.Length - 2).ToArray()));
-                        Dispose();
-                        await NetworkStream.WriteAsync(payload);
-                        NetworkStream.Close();
-                        break;
-                    default:
-                        Console.WriteLine("oops");
-                        Dispose();
-                        NetworkStream.Close();
-                        break;
+                    
+                    var closeFrame = new List<byte> { 0b10001000 }; 
+                    closeFrame.Add((byte)payload.Length);
+                    closeFrame.AddRange(payload);
+                    NetworkStream.Write(closeFrame.ToArray());
+                }
+                catch
+                {
+                    
+                }
+                finally
+                {
+                    NetworkStream.Close();
                 }
                 break;
             case 0x9:
                 Console.WriteLine("Received Ping");
+                
                 break;
             case 0xA: 
                 Console.WriteLine("Received Pong");
                 break;
         }
     }
-
+    
     private async Task SendPingAsync()
     {
-        var frame = new List<byte>();
-        var payload = new byte[] { 0xFF, 0xFE  };
-        
-        frame.Add(0b10001001);
-        frame.Add((byte)payload.Length);
-        frame.AddRange(payload);
-        
-        await NetworkStream.WriteAsync(frame.ToArray());
-    }
-    
-    
-    
-    private async Task BroadcastAsync(string message)
-    {
-        var payload = Encoding.UTF8.GetBytes(message);
-        var frame = new List<byte> { 0b10000001, (byte)payload.Length };
-        frame.AddRange(payload);
-        var frameBytes = frame.ToArray();
-
-        foreach (var connection in _connections.Values)
+        try
         {
-            await connection.NetworkStream.WriteAsync(frameBytes);
+            if (!NetworkStream.CanWrite || _cancellationToken.IsCancellationRequested)
+                return;
+            
+            var frame = new List<byte>();
+            var payload = new byte[] { 0xFF, 0xFE };
+        
+            frame.Add(0b10001001);
+            frame.Add((byte)payload.Length);
+            frame.AddRange(payload);
+        
+            await SendFrameAsync(frame.ToArray());
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Ping failed: {ex.Message}");
+            
+            Dispose();
         }
     }
-
-
-
 
     private void SetTimerToPing()
     {
         _timer = new Timer(20000);
-        _timer.Elapsed += async (sender, e) => await SendPingAsync();
+        _timer.Elapsed += async (sender, e) =>
+        {
+            try
+            {
+                await SendPingAsync();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Timer callback error: {ex.Message}");
+            }
+        };
         _timer.AutoReset = true;
         _timer.Enabled = true;
     }
@@ -238,5 +315,38 @@ public class ConnectionHandler(TcpClient tcpClient)
         _timer?.Stop();
         _timer?.Dispose();
         _cancellationToken?.Cancel();
+        _connections.TryRemove(id, out _);
     }
+    
+    
+    private async Task BroadcastAsync(string message)
+    {
+        var frameBytes = CreateTextFrame(message);
+
+        foreach (var connection in _connections.Values)
+        {
+            try
+            {
+                await connection.SendFrameAsync(frameBytes);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to send to connection: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task SendFrameAsync(byte[] bytes)
+    {
+        await _writeLock.WaitAsync();
+        try
+        {
+            await NetworkStream.WriteAsync(bytes);
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+    
 }
