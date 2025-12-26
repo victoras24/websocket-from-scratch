@@ -6,11 +6,11 @@ namespace server;
 
 public class TcpLayer(IPAddress address)
 {
-    private const int Port = 8080;
-    private readonly TcpListener _tcpListener = new TcpListener(address, Port);
-    
     public async Task CreateTcpConnection()
     {
+        var portEnv = Environment.GetEnvironmentVariable("PORT") ?? "8080"; 
+        int Port = int.Parse(portEnv);
+        var _tcpListener = new TcpListener(IPAddress.Any, Port);
         _tcpListener.Start();
         Console.WriteLine("Server started on {0}:{1}", address, Port);
         
