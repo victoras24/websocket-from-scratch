@@ -83,3 +83,29 @@ What are the next steps?
 
 It may have taken me a week to set up a WebSocket from scratch, but now I have a better understanding of how WebSockets are created, how the connection is maintained, what the frames are, and how the frames are decoded. I encourage all developers, especially junior ones like me, to give it a try. Sometimes, when you dig into the low level details, everything feels reasonable and easy to understand. But when you try to look at it from a high level perspective, it can seem really complex.
 
+PART 2
+
+Little more than two weeks have passed and I'm back. During that time, I was working on fragmentation, ping-pong, and also refactoring some parts of the code.
+Let's start with fragmentation. It took me a couple of days of searching and reading the RFC to understand what fragmentation actually is and how I could implement it in the project. While reading through the RFC, I got confused by the first paragraph:
+"The primary purpose of fragmentation is to allow sending a message that is of unknown size when the message is started without having to buffer that message."
+
+I was like, how can you fragment a message if you don't know the size of the message? But after digging deeper and reading more carefully, I realized the key to knowing whether you can fragment a message lies in the combination of FIN and opcode.
+
+Let me explain. Let me tell you something xD.
+
+So here’s what I figured out! When you send a message, it doesn’t have to be in one frame, it can be split into multiple frames and that’s what fragmentation is. Simple? Simple.
+Your question now might be: “Yeah, but how do you know when to fragment a message? And into how many pieces?” Let me explain.
+
+Each frame, as we mentioned in the first part, starts with a FIN bit. If it’s 1, that means this is the last frame of the message. If it’s 0, it means there are more frames coming.
+
+We also said that the key to fragmentation is the combination of FIN and opcode. The opcode is stored in the last 4 bits of the first byte. In the first frame, the opcode indicates the data type of the message.
+
+Oookay, time for an example.
+
+Let’s say we read the first frame of the message and the FIN bit is 0. That means there are more frames coming. We continue reading and check the last 4 bits of the first byte, the opcode indicates that the data type is text. Okay, store that data type, because the opcode in the following frames will have a different meaning.
+
+Now let’s read the second frame, the FIN is 0 and the opcode is 0. This means the frame is a continuation frame, a middle fragment.
+
+We continue reading the next frame: the FIN is 1 and the opcode is 0. This indicates that this is the last frame of the message.
+
+And that’s it, easy. That’s how you can fragment a message.
